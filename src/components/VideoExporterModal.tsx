@@ -150,8 +150,6 @@ export const VideoExporterModal: React.FC<VideoExporterModalProps> = ({
     }
 
     if (isAbortedRef.current) {
-      canvas.width = origWidth;
-      canvas.height = origHeight;
       return;
     }
 
