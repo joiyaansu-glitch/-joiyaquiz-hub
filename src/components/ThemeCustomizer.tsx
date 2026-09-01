@@ -186,6 +186,7 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({ theme, onChang
               className="w-full px-3 py-2 rounded-xl bg-[#0a0a0c] border border-white/10 text-white outline-none focus:border-indigo-500 font-medium"
             >
               <option value="impact">Impact Display (Bold)</option>
+              <option value="display">Poster Display (Tall)</option>
               <option value="sans">Modern Sans</option>
               <option value="serif">Editorial Serif</option>
               <option value="mono">Retro Mono</option>
@@ -398,6 +399,30 @@ export const ThemeCustomizer: React.FC<ThemeCustomizerProps> = ({ theme, onChang
               {col}
             </button>
           ))}
+        </div>
+
+        <div>
+          <label className="text-white/40 block mb-1.5 text-[10px] font-bold uppercase tracking-wider">Timer Display Style</label>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { id: 'clock', label: 'Analog Clock' },
+              { id: 'digital', label: 'Digital LED' },
+              { id: 'bar', label: 'Loading Bar' },
+            ] as { id: QuizThemeConfig['timerStyle']; label: string }[]).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => updateProp('timerStyle', opt.id)}
+                className={`py-2 px-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide border transition ${
+                  (theme.timerStyle || 'clock') === opt.id
+                    ? 'bg-indigo-600/20 text-white border-indigo-500 shadow-sm'
+                    : 'bg-[#0a0a0c] text-white/40 border-white/5 hover:bg-white/5'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-xs">
