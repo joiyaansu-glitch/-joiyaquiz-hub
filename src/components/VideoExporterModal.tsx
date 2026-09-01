@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Download, Film, Loader2, CheckCircle2, X, HardDriveDownload, Sparkles, Monitor, Mic, StopCircle, ListOrdered } from 'lucide-react';
 import { QuizItem, QuizThemeConfig, AudioConfig, IntroOutroConfig } from '../types';
-import { speakText, cancelSpeech, findVoicePersonaById, ALL_VOICE_LANGUAGES } from '../utils/ttsEngine';
+import { speakText, cancelSpeech, findVoicePersonaById, ALL_VOICE_LANGUAGES, preloadTtsBatch } from '../utils/ttsEngine';
 import {
   playCountdownBeep,
   playVictoryFanfare,
@@ -110,6 +110,49 @@ export const VideoExporterModal: React.FC<VideoExporterModalProps> = ({
     }
     if (audioConfig.customAnswerSoundUrl) {
       await preloadCustomAudio(audioConfig.customAnswerSoundUrl);
+    }
+
+    // Preload ALL narration audio (question + answer-reveal lines) for every question
+    // in this export BEFORE recording starts. Without this, each line was fetched live
+    // from the TTS server one at a time during recording, which caused a noticeable
+    // pause/stutter between narration lines on longer quizzes (e.g. 30+ questions).
+    if (audioConfig.enableTTS && !isAbortedRef.current) {
+      const narrationLines: string[] = [];
+      for (const item of targetQuestions) {
+        narrationLines.push(item.question);
+        const correctLetter = item.answer || 'A';
+        const letterIdx = ['A', 'B', 'C', 'D'].indexOf(correctLetter);
+        const correctOptionText = item.options[letterIdx] || '';
+        const reveal = item.explanation
+          ? `The correct answer is Option ${correctLetter}: ${correctOptionText}. ${item.explanation}`
+          : `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
+        narrationLines.push(reveal);
+      }
+
+      setCurrentStepText(`Preparing narration audio... 0/${narrationLines.length}`);
+      setProgress(1);
+
+      await preloadTtsBatch(
+        narrationLines,
+        {
+          language: audioConfig.language,
+          gender: audioConfig.voiceGender,
+          voicePersonaId: audioConfig.voicePersonaId,
+          rate: Math.max(1.1, audioConfig.speechRate),
+          volume: audioConfig.volume,
+        },
+        (done, total) => {
+          if (isAbortedRef.current) return;
+          setCurrentStepText(`Preparing narration audio... ${done}/${total}`);
+          setProgress(Math.round((done / Math.max(1, total)) * 8));
+        }
+      );
+    }
+
+    if (isAbortedRef.current) {
+      canvas.width = origWidth;
+      canvas.height = origHeight;
+      return;
     }
 
     const origWidth = canvas.width;
@@ -354,14 +397,7 @@ export const VideoExporterModal: React.FC<VideoExporterModalProps> = ({
           const correctLetter = item.answer || 'A';
           const letterIdx = ['A', 'B', 'C', 'D'].indexOf(correctLetter);
           const correctOptionText = item.options[letterIdx] || '';
-          const cleanExplanation = (item.explanation || '')
-  .replace(/^\s*[\[(]+/, '')
-  .replace(/[\])]+\s*$/, '')
-  .trim();
-
-const answerTTS = cleanExplanation
-  ? `The correct answer is Option ${correctLetter}: ${correctOptionText}. ${cleanExplanation}`
-  : `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
+          const answerTTS = `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
 
           await new Promise<void>((resolve) => {
             speakText(
