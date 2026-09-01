@@ -1,0 +1,8 @@
+{
+  "name": "JoiyaQuiz Hub",
+  "description": "Create, customize, preview, and export 1080p quiz show videos with AI generation, TTS narration, 7-segment timers, and animated answer reveals matching TV quiz show layouts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
