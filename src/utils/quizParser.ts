@@ -231,6 +231,15 @@ export function parseBulkQuizText(rawText: string): QuizItem[] {
   for (let i = 0; i < allLines.length; i++) {
     const line = allLines[i];
 
+    // If the previous question already had its "Answer:" line recorded, it is
+    // fully complete — close it out now before evaluating this new line. This
+    // guarantees a fresh, empty state for every new question block, which is
+    // what lets the digit-indicator guard above correctly recognize question
+    // numbers 1-4 instead of mistaking them for options.
+    if (currentAnswer !== null && currentQuestion) {
+      finalizeItem();
+    }
+
     // Check if line is an inline single-line question
     const inlineMatch = line.match(inlineOptionsRegex);
     if (inlineMatch) {
@@ -295,23 +304,34 @@ export function parseBulkQuizText(rawText: string): QuizItem[] {
     const optionMatch = line.match(optionRegex);
     if (optionMatch) {
       const rawIndicator = optionMatch[1].toUpperCase();
-      let letter: OptionLetter = 'A';
+      const isNumericIndicator = ['1', '2', '3', '4'].includes(rawIndicator);
 
-      if (['A', 'B', 'C', 'D'].includes(rawIndicator)) {
-        letter = rawIndicator as OptionLetter;
-      } else if (['1', '2', '3', '4'].includes(rawIndicator)) {
-        const numToLetter: Record<string, OptionLetter> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
-        letter = numToLetter[rawIndicator];
+      // Guard: a bare digit indicator ("1.", "2.", "3.", "4.") appearing at the very
+      // start of a fresh block (no options collected yet AND no question title
+      // accumulated yet) is a QUESTION NUMBER, not a numeric option label — numbered
+      // quiz lists (1., 2., 3. ... 20.) would otherwise have questions #1-#4 wrongly
+      // swallowed as options A-D, corrupting every question that follows them.
+      const looksLikeFreshQuestionNumber = isNumericIndicator && currentOptions.length === 0 && !currentQuestion;
+
+      if (!looksLikeFreshQuestionNumber) {
+        let letter: OptionLetter = 'A';
+
+        if (['A', 'B', 'C', 'D'].includes(rawIndicator)) {
+          letter = rawIndicator as OptionLetter;
+        } else if (isNumericIndicator) {
+          const numToLetter: Record<string, OptionLetter> = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
+          letter = numToLetter[rawIndicator];
+        }
+
+        // If we see Option A again and already have options, it means a new question started without explicit answer!
+        if (letter === 'A' && currentOptions.length >= 2 && currentQuestion) {
+          finalizeItem();
+        }
+
+        const text = optionMatch[2].trim();
+        currentOptions.push({ letter, text });
+        continue;
       }
-
-      // If we see Option A again and already have options, it means a new question started without explicit answer!
-      if (letter === 'A' && currentOptions.length >= 2 && currentQuestion) {
-        finalizeItem();
-      }
-
-      const text = optionMatch[2].trim();
-      currentOptions.push({ letter, text });
-      continue;
     }
 
     // 2b. Check Bulleted Option Line (- Option A, • Option B)
