@@ -304,7 +304,9 @@ export default function App() {
       if (audioConfig.enableDucking !== false) {
         duckBackgroundMusic(true, (audioConfig.bgMusicVolume ?? 0.18) * (audioConfig.volume ?? 0.8));
       }
-      const answerTTS = `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
+      const answerTTS = item.explanation
+        ? `The correct answer is Option ${correctLetter}: ${correctOptionText}. ${item.explanation}`
+        : `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
       speakText(
         answerTTS,
         {
