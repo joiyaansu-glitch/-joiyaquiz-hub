@@ -380,7 +380,7 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
 
           drawQuestionCapsule(ctx, baseW, baseH, prevQuestionRef.current.question, prevQuestionIndexRef.current, theme, false);
           drawOptionsList(ctx, baseW, baseH, prevQuestionRef.current, 'reveal', theme);
-          drawAnalogClockTimer(ctx, baseW, baseH, 0, theme);
+          drawTimerWidget(ctx, baseW, baseH, 0, theme);
           ctx.restore();
         } else {
           // Phase 2 (0.5s to 1.0s): New Question Animates In
@@ -391,14 +391,17 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
 
           drawQuestionCapsule(ctx, baseW, baseH, typeState.questionText, questionIndex, theme, typeState.isQuestionTyping);
           drawOptionsList(ctx, baseW, baseH, question, 'reading', theme, typeState.optionsText, typeState.activeOptionIndex);
-          drawAnalogClockTimer(ctx, baseW, baseH, theme.timerDuration, theme);
+          drawTimerWidget(ctx, baseW, baseH, theme.timerDuration, theme);
           ctx.restore();
         }
       } else {
         // Normal Stable Render with Typewriter effect
         drawQuestionCapsule(ctx, baseW, baseH, typeState.questionText, questionIndex, theme, typeState.isQuestionTyping);
         drawOptionsList(ctx, baseW, baseH, question, playbackState, theme, typeState.optionsText, typeState.activeOptionIndex);
-        drawAnalogClockTimer(ctx, baseW, baseH, timerSeconds, theme);
+        drawTimerWidget(ctx, baseW, baseH, timerSeconds, theme);
+        if (playbackState === 'reveal' && question.explanation) {
+          drawExplanationCaption(ctx, baseW, baseH, question.explanation, theme);
+        }
       }
 
       ctx.restore();
@@ -664,6 +667,61 @@ function drawOptionsList(
   });
 }
 
+function drawExplanationCaption(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  explanation: string,
+  theme: QuizThemeConfig
+) {
+  if (!explanation) return;
+
+  const boxX = 60;
+  const boxY = 958;
+  const boxW = 1250;
+  const boxH = 104;
+
+  ctx.save();
+
+  // Semi-transparent dark caption panel with accent left edge
+  ctx.beginPath();
+  roundRectPath(ctx, boxX, boxY, boxW, boxH, 20);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 4;
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = theme.correctHighlightColor || '#fbbf24';
+  ctx.stroke();
+
+  // Little "why" bulb icon on the left
+  ctx.font = '44px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('💡', boxX + 62, boxY + boxH / 2 + 2);
+
+  // Explanation text, auto-fit and wrapped
+  const fontFam = getFontFamilyString(theme.fontFamily);
+  drawAutoFitText(
+    ctx,
+    explanation,
+    boxX + 116,
+    boxX + 116,
+    boxY + boxH / 2,
+    boxW - 150,
+    boxH - 20,
+    30,
+    fontFam,
+    '#f1f5f9',
+    false,
+    'left'
+  );
+
+  ctx.restore();
+}
+
 function drawSingleOption(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -817,6 +875,143 @@ function drawSingleOption(
   ctx.restore();
 }
 
+function drawTimerWidget(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  seconds: number,
+  theme: QuizThemeConfig
+) {
+  const style = theme.timerStyle || 'clock';
+  if (style === 'digital') {
+    drawDigitalTimer(ctx, w, h, seconds, theme);
+  } else if (style === 'bar') {
+    drawLoadingBarTimer(ctx, w, h, seconds, theme);
+  } else {
+    drawAnalogClockTimer(ctx, w, h, seconds, theme);
+  }
+}
+
+function getTimerHandColor(theme: QuizThemeConfig): string {
+  let handColor = '#10b981'; // Green default
+  if (theme.timerColor === 'red') handColor = '#ef4444';
+  if (theme.timerColor === 'cyan') handColor = '#06b6d4';
+  if (theme.timerColor === 'yellow') handColor = '#f59e0b';
+  if (theme.timerColor === 'blue') handColor = '#3b82f6';
+  if (theme.timerColor === 'purple') handColor = '#a855f7';
+  if (theme.timerColor === 'orange') handColor = '#f97316';
+  return handColor;
+}
+
+function drawDigitalTimer(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  seconds: number,
+  theme: QuizThemeConfig
+) {
+  ctx.save();
+
+  const maxSeconds = theme.timerDuration || 10;
+  const currentSec = Math.max(0, Math.min(maxSeconds, seconds));
+  const displaySec = Math.ceil(currentSec);
+
+  const centerX = 1585;
+  const centerY = 620;
+  const boxW = 220;
+  const boxH = 150;
+  const color = getTimerHandColor(theme);
+
+  // Outer bezel
+  roundRectPath(ctx, centerX - boxW / 2 - 10, centerY - boxH / 2 - 10, boxW + 20, boxH + 20, 24);
+  const bezelGrad = ctx.createLinearGradient(centerX - boxW / 2, centerY - boxH / 2, centerX + boxW / 2, centerY + boxH / 2);
+  bezelGrad.addColorStop(0, '#475569');
+  bezelGrad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = bezelGrad;
+  ctx.shadowColor = 'rgba(0,0,0,0.7)';
+  ctx.shadowBlur = 30;
+  ctx.shadowOffsetY = 10;
+  ctx.fill();
+
+  // Dark LCD screen
+  roundRectPath(ctx, centerX - boxW / 2, centerY - boxH / 2, boxW, boxH, 16);
+  ctx.fillStyle = '#020617';
+  ctx.shadowColor = 'transparent';
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+
+  // Digital number
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 24;
+  ctx.font = '900 84px "Space Mono", "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(displaySec).padStart(2, '0'), centerX, centerY - 6);
+
+  // "SEC" label
+  ctx.shadowBlur = 0;
+  ctx.font = '700 20px "Arial", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('SECONDS', centerX, centerY + 52);
+
+  ctx.restore();
+}
+
+function drawLoadingBarTimer(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  seconds: number,
+  theme: QuizThemeConfig
+) {
+  ctx.save();
+
+  const maxSeconds = theme.timerDuration || 10;
+  const currentSec = Math.max(0, Math.min(maxSeconds, seconds));
+  const progress = maxSeconds > 0 ? currentSec / maxSeconds : 0;
+
+  const centerX = 1585;
+  const centerY = 620;
+  const barW = 260;
+  const barH = 46;
+  const color = getTimerHandColor(theme);
+
+  // Time label above bar
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 40px "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${Math.ceil(currentSec)}s`, centerX, centerY - barH / 2 - 36);
+
+  // Track (background)
+  roundRectPath(ctx, centerX - barW / 2, centerY - barH / 2, barW, barH, barH / 2);
+  ctx.fillStyle = '#1e293b';
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 6;
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.stroke();
+
+  // Fill (progress) - shrinks from full to empty as time runs out
+  ctx.shadowColor = 'transparent';
+  const fillW = Math.max(barH, barW * progress);
+  roundRectPath(ctx, centerX - barW / 2, centerY - barH / 2, fillW, barH, barH / 2);
+  const fillGrad = ctx.createLinearGradient(centerX - barW / 2, 0, centerX - barW / 2 + fillW, 0);
+  fillGrad.addColorStop(0, color);
+  fillGrad.addColorStop(1, color + 'cc');
+  ctx.fillStyle = fillGrad;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 18;
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawAnalogClockTimer(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -944,14 +1139,16 @@ function roundRectPath(
 function getFontFamilyString(family: QuizThemeConfig['fontFamily']): string {
   switch (family) {
     case 'impact':
-      return '"Arial Black", Impact, sans-serif';
+      return '"Anton", "Arial Black", Impact, sans-serif';
+    case 'display':
+      return '"Bebas Neue", Impact, sans-serif';
     case 'serif':
-      return 'Georgia, "Times New Roman", serif';
+      return '"Playfair Display", Georgia, "Times New Roman", serif';
     case 'mono':
-      return '"Courier New", Courier, monospace';
+      return '"Space Mono", "Courier New", Courier, monospace';
     case 'sans':
     default:
-      return '"Plus Jakarta Sans", system-ui, sans-serif';
+      return '"Poppins", system-ui, sans-serif';
   }
 }
 
