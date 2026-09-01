@@ -173,6 +173,47 @@ export function preloadTtsAudio(text: string, options: TTSOptions): Promise<stri
   return fetchTtsAudioUrl(text, options);
 }
 
+/**
+ * Preload a batch of narration lines in parallel (with a concurrency cap) so that
+ * later speakText() calls resolve instantly from cache instead of doing a live
+ * network round-trip per line. This removes the mid-narration stutter/delay that
+ * shows up on longer quizzes (e.g. 30+ questions) during playback or video export.
+ */
+export async function preloadTtsBatch(
+  texts: string[],
+  options: TTSOptions,
+  onProgress?: (done: number, total: number) => void,
+  concurrency: number = 4
+): Promise<void> {
+  const uniqueTexts = Array.from(new Set(texts.filter(t => t && t.trim().length > 0)));
+  const total = uniqueTexts.length;
+  if (total === 0) {
+    onProgress?.(0, 0);
+    return;
+  }
+
+  let nextIndex = 0;
+  let done = 0;
+
+  const worker = async () => {
+    while (nextIndex < uniqueTexts.length) {
+      const idx = nextIndex++;
+      const text = uniqueTexts[idx];
+      try {
+        await fetchTtsAudioUrl(text, options);
+      } catch (e) {
+        // Ignore individual failures here; speakText's own safety timeout will
+        // handle any line that still fails to fetch live during playback.
+      }
+      done++;
+      onProgress?.(done, total);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
+  await Promise.all(workers);
+}
+
 // ---------------------------------------------------------------------------
 // Speech Playback Controller (HTML5 Audio + WebAudio Stream integration)
 // ---------------------------------------------------------------------------
