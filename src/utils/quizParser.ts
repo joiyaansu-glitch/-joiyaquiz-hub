@@ -280,7 +280,13 @@ export function parseBulkQuizText(rawText: string): QuizItem[] {
       }
 
       if (answerMatch[2] && !currentExplanation) {
-        currentExplanation = answerMatch[2].replace(/^[\-\:\.]\s*/, '').trim();
+        // Strip a leading separator (e.g. "- explanation") and a single pair of
+        // wrapping parentheses/brackets (e.g. "(Alpha is the first letter...)")
+        // so the stored explanation is clean plain text for display + narration.
+        let expl = answerMatch[2].replace(/^[\-\:\.]\s*/, '').trim();
+        const wrapped = expl.match(/^[\(\[]([\s\S]*)[\)\]]$/);
+        if (wrapped) expl = wrapped[1].trim();
+        currentExplanation = expl;
       }
       continue;
     }
