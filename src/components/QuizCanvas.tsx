@@ -398,7 +398,12 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
         // Normal Stable Render with Typewriter effect
         drawQuestionCapsule(ctx, baseW, baseH, typeState.questionText, questionIndex, theme, typeState.isQuestionTyping);
         drawOptionsList(ctx, baseW, baseH, question, playbackState, theme, typeState.optionsText, typeState.activeOptionIndex);
-        drawTimerWidget(ctx, baseW, baseH, timerSeconds, theme);
+        // Hide the countdown timer widget once the answer is being revealed —
+        // leaving it on screen made it look like the timer was "still running"
+        // at the same time as the correct-answer highlight and explanation.
+        if (playbackState !== 'reveal' && playbackState !== 'revealed') {
+          drawTimerWidget(ctx, baseW, baseH, timerSeconds, theme);
+        }
         if (playbackState === 'reveal' && question.explanation) {
           drawExplanationCaption(ctx, baseW, baseH, question.explanation, theme);
         }
