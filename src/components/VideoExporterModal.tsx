@@ -354,7 +354,14 @@ export const VideoExporterModal: React.FC<VideoExporterModalProps> = ({
           const correctLetter = item.answer || 'A';
           const letterIdx = ['A', 'B', 'C', 'D'].indexOf(correctLetter);
           const correctOptionText = item.options[letterIdx] || '';
-          const answerTTS = `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
+          const cleanExplanation = (item.explanation || '')
+  .replace(/^\s*[\[(]+/, '')
+  .replace(/[\])]+\s*$/, '')
+  .trim();
+
+const answerTTS = cleanExplanation
+  ? `The correct answer is Option ${correctLetter}: ${correctOptionText}. ${cleanExplanation}`
+  : `The correct answer is Option ${correctLetter}: ${correctOptionText}.`;
 
           await new Promise<void>((resolve) => {
             speakText(
