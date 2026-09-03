@@ -29,8 +29,11 @@ export function computeTypewriterState(
     };
   }
 
-  // Standard smooth fluid typing speed (24ms/char)
-  const msPerChar = 24;
+  // Standard smooth fluid typing speed, tuned to roughly match natural narration
+  // pace (~150-165 words/min ≈ 60ms/char) instead of a much faster fixed rate —
+  // previously the text finished typing well before the narrator finished
+  // speaking it, so it sat static/"frozen" for the rest of the narration.
+  const msPerChar = 58;
   const pauseBetweenQandOptions = 120;
   const pauseBetweenOptions = 80;
 
@@ -149,6 +152,11 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
   const transitionStartRef = useRef<number | null>(null);
   const questionStartTimeRef = useRef<number>(performance.now());
   const lastTypedCharsRef = useRef<number>(0);
+  // Wall-clock timestamp of the moment the current whole-second `timerSeconds`
+  // value was received. Used to interpolate a smooth, continuously-decreasing
+  // value between one-second ticks so the loading bar / clock hand glide
+  // instead of visibly jumping once per second.
+  const timerTickTimeRef = useRef<number>(performance.now());
 
   // Preload mascot image
   useEffect(() => {
@@ -292,6 +300,12 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
     }
   }, [playbackState]);
 
+  // Mark the moment each new whole-second countdown tick arrives, so the render
+  // loop can interpolate a smooth, gliding value instead of a once-per-second jump.
+  useEffect(() => {
+    timerTickTimeRef.current = performance.now();
+  }, [timerSeconds]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -402,7 +416,14 @@ export const QuizCanvas: React.FC<QuizCanvasProps> = ({
         // leaving it on screen made it look like the timer was "still running"
         // at the same time as the correct-answer highlight and explanation.
         if (playbackState !== 'reveal' && playbackState !== 'revealed') {
-          drawTimerWidget(ctx, baseW, baseH, timerSeconds, theme);
+          // Interpolate a smoothly-decreasing value between the once-per-second
+          // timerSeconds ticks so the loading bar / clock hand glide continuously
+          // instead of visibly jumping in whole-second steps.
+          const msSinceTick = now - timerTickTimeRef.current;
+          const smoothTimerSeconds = playbackState === 'countdown'
+            ? Math.max(0, timerSeconds - msSinceTick / 1000)
+            : timerSeconds;
+          drawTimerWidget(ctx, baseW, baseH, smoothTimerSeconds, theme);
         }
         if (playbackState === 'reveal' && question.explanation) {
           drawExplanationCaption(ctx, baseW, baseH, question.explanation, theme);
