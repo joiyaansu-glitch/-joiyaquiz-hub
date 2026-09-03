@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Video, Music, Mic, Zap, Upload, Play, Trash2, Plus, Film, Sliders, ChevronRight } from 'lucide-react';
 import { QuizItem, QuizThemeConfig, AudioConfig, IntroOutroConfig, QuizPlaybackState } from '../types';
 import { preloadCustomAudio } from '../utils/audioEngine';
@@ -30,11 +30,100 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
 }) => {
   const timelineRef = useRef<HTMLDivElement>(null);
 
-  // Calculate estimated total video duration
-  const perQuestionDuration = 3 + theme.timerDuration + theme.revealDelay; // TTS + countdown + reveal
+  // Calculate estimated total video duration.
+  // Previously this used a fixed "3 seconds" guess for every question's narration
+  // regardless of its actual length, and ignored the explanation text entirely —
+  // so longer quizzes (e.g. 30 questions with real explanations) showed a much
+  // shorter estimate here than the video actually turned out to be. This now
+  // estimates narration time from the real question/option/explanation text
+  // length at a natural speaking pace (~0.06s per character), matching how long
+  // the TTS narration actually takes for both the question and the answer-reveal.
+  const estimateNarrationSeconds = (text: string) => 1 + (text || '').length * 0.06;
+  const perQuestionDuration = questions.length > 0
+    ? questions.reduce((sum, q) => {
+        const correctIdx = ['A', 'B', 'C', 'D'].indexOf(q.answer || 'A');
+        const correctOptionText = q.options?.[correctIdx] || '';
+        const revealText = `The correct answer is Option ${q.answer || 'A'}: ${correctOptionText}. ${q.explanation || ''}`;
+        const questionNarrationSec = estimateNarrationSeconds(q.question);
+        const revealNarrationSec = estimateNarrationSeconds(revealText);
+        // question narration + countdown timer + reveal narration + reveal pause + ~1s transition buffer
+        return sum + questionNarrationSec + theme.timerDuration + revealNarrationSec + theme.revealDelay + 1;
+      }, 0) / questions.length
+    : 3 + theme.timerDuration + theme.revealDelay;
   const introDur = introOutro.enableIntro ? introOutro.introDuration : 0;
   const outroDur = introOutro.enableOutro ? introOutro.outroDuration : 0;
   const totalDuration = introDur + (questions.length * perQuestionDuration) + outroDur;
+
+  // --- Smooth playhead tracking -------------------------------------------
+  // Previously the playhead only moved when `timerSeconds` ticked down once a
+  // second, and it stayed completely frozen for however long the question's
+  // narration took (since timerSeconds doesn't start counting down until AFTER
+  // narration finishes) — then it jumped straight to the next question. This
+  // tracks real wall-clock time within each phase (narration → countdown →
+  // reveal) and re-renders every ~100ms so the playhead glides continuously
+  // through the whole question instead of freezing and jumping.
+  const phaseStartRef = useRef<number>(performance.now());
+  const phaseKeyRef = useRef<string>('');
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setTick((t) => (t + 1) % 1000000), 100);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const currentQuestion = questions[currentIndex];
+  const phaseKey = `${currentIndex}:${playbackState}`;
+  if (phaseKeyRef.current !== phaseKey) {
+    phaseKeyRef.current = phaseKey;
+    phaseStartRef.current = performance.now();
+  }
+  const phaseElapsedSec = Math.max(0, (performance.now() - phaseStartRef.current) / 1000);
+
+  let offsetWithinQuestion = 0;
+  let phaseDurationEstimate = 1;
+
+  if (currentQuestion) {
+    const questionNarrationSec = estimateNarrationSeconds(currentQuestion.question);
+    const correctIdx = ['A', 'B', 'C', 'D'].indexOf(currentQuestion.answer || 'A');
+    const correctOptionText = currentQuestion.options?.[correctIdx] || '';
+    const revealText = `The correct answer is Option ${currentQuestion.answer || 'A'}: ${correctOptionText}. ${currentQuestion.explanation || ''}`;
+    const revealNarrationSec = estimateNarrationSeconds(revealText);
+
+    switch (playbackState) {
+      case 'reading':
+        offsetWithinQuestion = 0;
+        phaseDurationEstimate = questionNarrationSec;
+        break;
+      case 'countdown':
+        offsetWithinQuestion = questionNarrationSec;
+        // timerSeconds itself already ticks down once a second during this phase,
+        // so use it directly (it's more accurate than a time-based estimate here).
+        phaseDurationEstimate = theme.timerDuration;
+        break;
+      case 'reveal':
+      case 'revealed':
+        offsetWithinQuestion = questionNarrationSec + theme.timerDuration;
+        phaseDurationEstimate = revealNarrationSec + theme.revealDelay;
+        break;
+      case 'transitioning':
+      default:
+        offsetWithinQuestion = 0;
+        phaseDurationEstimate = 1;
+        break;
+    }
+  }
+
+  // Calculate active playhead position
+  const activeQuestionOffset = introDur + (currentIndex * perQuestionDuration);
+  const withinPhaseProgress = playbackState === 'countdown'
+    ? (theme.timerDuration - timerSeconds)
+    : Math.min(phaseDurationEstimate, phaseElapsedSec);
+  const currentElapsed = playbackState === 'intro'
+    ? Math.min(introDur, phaseElapsedSec)
+    : playbackState === 'outro'
+    ? introDur + (questions.length * perQuestionDuration) + Math.min(outroDur, phaseElapsedSec)
+    : activeQuestionOffset + offsetWithinQuestion + withinPhaseProgress;
+  const playheadPercent = Math.min(100, Math.max(0, (currentElapsed / Math.max(1, totalDuration)) * 100));
 
   // File upload handlers for intro and outro
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'intro' | 'outro') => {
@@ -65,11 +154,6 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
     const s = Math.floor(secs % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
-
-  // Calculate active playhead position
-  const activeQuestionOffset = introDur + (currentIndex * perQuestionDuration);
-  const currentElapsed = activeQuestionOffset + (theme.timerDuration - timerSeconds);
-  const playheadPercent = Math.min(100, Math.max(0, (currentElapsed / Math.max(1, totalDuration)) * 100));
 
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!timelineRef.current) return;
