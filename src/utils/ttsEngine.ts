@@ -106,6 +106,16 @@ let currentAudio: HTMLAudioElement | null = null;
 let currentAbortController: AbortController | null = null;
 let currentAudioSourceNode: MediaElementAudioSourceNode | null = null;
 
+// Monotonically increasing "generation" counter. Every speakText() call (and every
+// cancelSpeech() call) bumps this. Each speakText() invocation captures the
+// generation value that was current at its start; before it's allowed to actually
+// create/play an Audio element, it re-checks that its captured generation still
+// matches the current one. If a newer speakText()/cancelSpeech() happened in the
+// meantime, the stale call quietly gives up instead of playing — this is what
+// prevents an old, already-cached narration line from sneaking in and playing on
+// top of a newer one (the "double audio" issue).
+let speechGeneration = 0;
+
 function getCacheKey(text: string, voice: string, rate: number): string {
   return `${voice}__${rate.toFixed(2)}__${text.trim()}`;
 }
@@ -246,6 +256,12 @@ export function speakText(
 
   cancelSpeech();
 
+  // Claim this call as the newest "generation". Anything still resolving from an
+  // earlier speakText() call will see myGeneration !== speechGeneration below and
+  // bail out instead of playing.
+  const myGeneration = ++speechGeneration;
+  const isStale = () => myGeneration !== speechGeneration;
+
   // Safety maximum speech timeout based on text length (prevents hanging during bulk 40-question export)
   const maxWaitMs = Math.max(10000, text.length * 160);
   safetyTimeoutId = setTimeout(() => {
@@ -260,7 +276,7 @@ export function speakText(
 
   fetchTtsAudioUrl(text, options, abortController.signal)
     .then((audioUrl) => {
-      if (isCancelled || hasEnded) return;
+      if (isCancelled || hasEnded || isStale()) return;
 
       const audio = new Audio();
       audio.crossOrigin = 'anonymous';
@@ -307,7 +323,7 @@ export function speakText(
       }
     })
     .catch((err) => {
-      if (!isCancelled && err.name !== 'AbortError' && !hasEnded) {
+      if (!isCancelled && !hasEnded && !isStale() && err.name !== 'AbortError') {
         console.warn('[NeuralTTS] Fetch error:', err);
         onError?.(err);
         triggerEnd();
@@ -354,6 +370,11 @@ export function playVoicePreview(
 }
 
 export function cancelSpeech(): void {
+  // Bump the generation so any in-flight speakText() calls (even ones whose
+  // network/cache fetch hasn't resolved yet) will notice they're stale and
+  // refuse to start playing once they do resolve.
+  speechGeneration++;
+
   if (currentAbortController) {
     try {
       currentAbortController.abort();
